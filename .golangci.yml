@@ -1,0 +1,7 @@
+version: "2"
+
+linters:
+  # линтеры по умолчанию: errcheck, govet, ineffassign, staticcheck, unused
+  exclusions:
+    presets:
+      - std-error-handling   # не считать ошибкой непроверенный err у Close(), fmt.Print* и т.п.
