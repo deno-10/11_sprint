@@ -1,0 +1,73 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']          # публикация только по тегам вида v1, v1.0.0
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  # <docker_id>/<имя образа>; docker_id берётся из секрета DOCKERHUB_USERNAME
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/parcel-tracker
+
+jobs:
+  # 1. Проверка кода и тесты — на каждый push в main, PR и тег
+  lint-and-test:
+    name: Lint & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+
+      - name: go test
+        run: go test -race -count=1 -cover ./...
+
+  # 2. Сборка образа и публикация в Docker Hub — только по тегу и только после успешного job 1
+  publish:
+    name: Publish to Docker Hub
+    needs: lint-and-test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Image tags   # тег образа = git-тег (v1.0.0) + latest
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
